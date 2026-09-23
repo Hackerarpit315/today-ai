@@ -1,0 +1,4 @@
+const chat=document.querySelector('#chat'),form=document.querySelector('#form'),input=document.querySelector('#input'),error=document.querySelector('#error');
+function bubble(text,role){const d=document.createElement('div');d.className=`bubble ${role}`;d.textContent=text;chat.appendChild(d);chat.scrollTop=chat.scrollHeight}
+form.addEventListener('submit',e=>{e.preventDefault();const text=input.value.trim();if(!text)return;if(/(?:password\s*=|api[_ -]?key\s*=|bearer\s+)/i.test(text)){error.hidden=false;error.textContent='Sensitive content cannot be displayed.';return}error.hidden=true;bubble(text,'user');setTimeout(()=>bubble('Aapka request receive ho gaya.','assistant'),0);input.value=''});
+document.querySelector('#mic').addEventListener('click',()=>{error.hidden=false;error.textContent='Voice input is a placeholder and is not connected yet.'});
