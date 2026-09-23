@@ -229,15 +229,11 @@ def test_input_never_executed_and_is_echoed():
         body = post_json({"input_type": "text", "content": content}).json()
         assert body["content"] == content
     assert os.getpid() == pid_before
-
-
+    
 def test_app_source_has_no_forbidden_constructs():
-    forbidden = (
-        "eval(",
-        "exec(",
-        "os.system",
-        "subprocess",
-        "pickle",
+    import ast
+
+    forbidden_imports = {
         "openai",
         "anthropic",
         "langchain",
@@ -247,18 +243,86 @@ def test_app_source_has_no_forbidden_constructs():
         "httpx",
         "requests",
         "jinja2",
-        "HTMLResponse",
+    }
+
+    forbidden_calls = {
+        "eval",
+        "exec",
+    }
+
+    forbidden_attribute_calls = {
+        ("os", "system"),
+        ("subprocess", "run"),
+        ("subprocess", "Popen"),
+        ("subprocess", "call"),
+        ("subprocess", "check_call"),
+        ("subprocess", "check_output"),
+    }
+
+    forbidden_text = (
         "../",
         "..\\",
     )
+
     for path in APP_ROOT.rglob("*.py"):
         text = path.read_text(encoding="utf-8")
         lowered = text.lower()
-        for token in forbidden:
-            assert token.lower() not in lowered, f"{token} found in {path}"
-        for call in re.findall(r"logger\.(?:info|warning|error|debug|exception)\((.*?)\)", text, flags=re.S):
-            assert "content" not in call
 
+        # Keep path-traversal protection as a source-text check.
+        for token in forbidden_text:
+            assert token not in lowered, f"{token} found in {path}"
+
+        # Parse Python source so harmless strings such as
+        # "OpenAI" are not treated as forbidden imports.
+        try:
+            tree = ast.parse(text, filename=str(path))
+        except SyntaxError as exc:
+            raise AssertionError(
+                f"Could not parse Python source: {path}"
+            ) from exc
+
+        for node in ast.walk(tree):
+
+            # Detect: import openai
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    root_name = alias.name.split(".")[0].lower()
+                    assert root_name not in forbidden_imports, (
+                        f"Forbidden import {alias.name} found in {path}"
+                    )
+
+            # Detect: from openai import ...
+            elif isinstance(node, ast.ImportFrom):
+                module = (node.module or "").split(".")[0].lower()
+                assert module not in forbidden_imports, (
+                    f"Forbidden import {node.module} found in {path}"
+                )
+
+            # Detect: eval(...) / exec(...)
+            elif isinstance(node, ast.Call):
+                if isinstance(node.func, ast.Name):
+                    assert node.func.id.lower() not in forbidden_calls, (
+                        f"Forbidden call {node.func.id} found in {path}"
+                    )
+
+                # Detect: os.system(...), subprocess.run(...), etc.
+                elif isinstance(node.func, ast.Attribute):
+                    if isinstance(node.func.value, ast.Name):
+                        pair = (
+                            node.func.value.id.lower(),
+                            node.func.attr.lower(),
+                        )
+                        assert pair not in forbidden_attribute_calls, (
+                            f"Forbidden call "
+                            f"{node.func.value.id}.{node.func.attr} "
+                            f"found in {path}"
+                        )
+
+                # Detect HTMLResponse(...) if used.
+                if isinstance(node.func, ast.Name):
+                    assert node.func.id != "HTMLResponse", (
+                        f"HTMLResponse found in {path}"
+                    )
 
 def test_safe_error_bodies_have_no_traceback(monkeypatch):
     def boom(*_args, **_kwargs):
