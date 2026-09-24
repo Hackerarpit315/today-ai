@@ -6,6 +6,7 @@ import re
 from typing import Any
 from uuid import UUID
 
+from app.services.audit.in_memory_repository import InMemoryAuditRepository
 from app.schemas.audit import (
     AuditEvent,
     AuditEventCreateRequest,
@@ -16,7 +17,6 @@ from app.schemas.audit import (
     AuditEventRetrieveRequest,
     AuditIntegrityResponse,
 )
-from app.services.audit.in_memory_repository import InMemoryAuditRepository
 from app.services.audit.repository import AuditRepository
 
 
@@ -135,22 +135,20 @@ class AuditService:
         return all(expected is None or actual == expected for expected, actual in checks)
 
     def list_events(self, request: AuditEventListRequest) -> AuditEventListResponse:
-        all_events = [e for e in self.repository._events.values()] if isinstance(self.repository, InMemoryAuditRepository) else []
+        all_events = self.repository.all()
         filtered = [e for e in all_events if self._matches(e, request)]
         events = self.repository.list(filtered, ascending=request.ascending, offset=request.offset, limit=request.limit)
         return AuditEventListResponse(success=True, status="listed", events=events, total=len(filtered))
 
     def search_events(self, request: AuditEventSearchRequest) -> AuditEventListResponse:
-        all_events = [e for e in self.repository._events.values()] if isinstance(self.repository, InMemoryAuditRepository) else []
+        all_events = self.repository.all()
         events = self.repository.search(all_events, request.query, ascending=request.ascending, offset=request.offset, limit=request.limit)
         q = request.query.casefold()
         total = sum(1 for e in all_events if q in e.message.casefold() or q in e.module.value.casefold() or q in e.event_type.value.casefold())
         return AuditEventListResponse(success=True, status="listed", events=events, total=total)
 
     def count_events(self, request: AuditEventListRequest | None = None) -> int:
-        if not isinstance(self.repository, InMemoryAuditRepository):
-            return 0
-        events = list(self.repository._events.values())
+        events = self.repository.all()
         if request is not None:
             events = [e for e in events if self._matches(e, request)]
         return self.repository.count(events)

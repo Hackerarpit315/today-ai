@@ -6,6 +6,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID, uuid4
 
+from app.persistence.repositories.memory_repository import MemoryRepository
 from app.schemas.memory import (
     Importance,
     MemoryForgetRequest,
@@ -37,7 +38,7 @@ _SECRET_VALUE = re.compile(
 )
 
 
-class InMemoryMemoryRepository:
+class InMemoryMemoryRepository(MemoryRepository):
     """Deterministic storage abstraction used until a real database is introduced."""
 
     def __init__(self) -> None:
@@ -55,7 +56,7 @@ class InMemoryMemoryRepository:
 
 
 class MemoryService:
-    def __init__(self, repository: InMemoryMemoryRepository | None = None) -> None:
+    def __init__(self, repository: MemoryRepository | None = None) -> None:
         self.repository = repository or InMemoryMemoryRepository()
 
     @staticmethod

@@ -16,6 +16,9 @@ class InMemoryAuditRepository(AuditRepository):
         self._events[event.event_id] = event.model_copy(deep=True)
         return event.model_copy(deep=True)
 
+    def all(self) -> list[AuditEvent]:
+        return [event.model_copy(deep=True) for event in self._events.values()]
+
     def get_by_id(self, event_id: UUID) -> AuditEvent | None:
         event = self._events.get(event_id)
         return event.model_copy(deep=True) if event else None

@@ -12,3 +12,7 @@ build/
 htmlcov/
 .idea/
 .vscode/
+
+# Local SQLite persistence
+data/*.db
+data/*.sqlite3

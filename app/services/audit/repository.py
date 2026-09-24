@@ -14,6 +14,9 @@ class AuditRepository(ABC):
     def get_by_id(self, event_id: UUID) -> AuditEvent | None: ...
 
     @abstractmethod
+    def all(self) -> list[AuditEvent]: ...
+
+    @abstractmethod
     def list(self, events: list[AuditEvent], *, ascending: bool, offset: int, limit: int) -> list[AuditEvent]: ...
 
     @abstractmethod
