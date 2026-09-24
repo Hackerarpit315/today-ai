@@ -9,6 +9,7 @@ from pydantic import ValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api.routes.input import router as input_router
+from app.api.routes.assistant import router as assistant_router
 from app.core.security import (
     AccessLogMiddleware,
     AppError,
@@ -24,6 +25,7 @@ app = FastAPI(
     title="Today AI",
 ) 
 app.include_router(input_router)
+app.include_router(assistant_router)
 
 # Last added runs first. Access log is outermost so 413/415 are logged.
 app.add_middleware(BodySizeLimitMiddleware)
