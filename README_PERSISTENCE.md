@@ -4,7 +4,7 @@
 
 Today AI can persist M12 Memory and M13 Audit data in a local SQLite database without changing the public module contracts.
 
-The existing in-memory repositories remain available and remain the default when services are created without an explicit repository.
+The existing in-memory repositories remain available. Application routes use in-memory storage by default; SQLite is activated explicitly with `TODAY_AI_PERSISTENCE=sqlite` or when `TODAY_AI_DB_PATH` is configured.
 
 ## Architecture
 
@@ -36,7 +36,7 @@ If unset, the default is:
 data/today_ai.db
 ```
 
-The database directory is created when explicit database initialization or a SQLite repository is constructed.
+The database directory is created when explicit database initialization or a SQLite repository is constructed. Application route requests construct the configured repository without initializing the database at Python import time.
 
 Database initialization:
 
@@ -140,5 +140,5 @@ The full suite includes the 27 new persistence tests.
 
 - SQLite is intended for local single-application persistence in this phase.
 - No multi-process deployment strategy or database server was introduced.
-- Existing APIs/services do not silently switch from in-memory to SQLite; callers explicitly choose the repository.
+- The memory and audit API routes explicitly select the configured repository backend per request. With no persistence configuration they retain the in-memory behavior; with `TODAY_AI_PERSISTENCE=sqlite` or `TODAY_AI_DB_PATH` they use SQLite.
 - No frontend, LLM, n8n, external actions, or external APIs are part of this phase.

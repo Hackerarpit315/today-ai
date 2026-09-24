@@ -12,10 +12,9 @@ from app.schemas.memory import (
     MemoryStoreRequest,
     MemoryUpdateRequest,
 )
-from app.services.memory_service import MemoryService
+from app.persistence.factory import create_memory_service
 
 router = APIRouter(prefix="/api/memory", tags=["memory"])
-_service = MemoryService()
 
 
 class MemoryRouteRequest:
@@ -52,5 +51,6 @@ def memory_operation(payload: dict[str, Any]) -> Any:
         }
 
     request = model.model_validate(data)
-    service_method = getattr(_service, operation)
+    service = create_memory_service()
+    service_method = getattr(service, operation)
     return service_method(request)
