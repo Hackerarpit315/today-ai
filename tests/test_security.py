@@ -98,3 +98,98 @@ def test_communication_medium_risk(): assert action_check(ActionSecurityRequest(
 def test_draft_low_risk(): assert action_check(ActionSecurityRequest(request_id=RID,action_category=ActionCategory.draft)).risk_level == RiskLevel.low
 def test_credential_handling_blocks_even_with_permission():
     d=action_check(ActionSecurityRequest(request_id=RID,action_category=ActionCategory.communication,permission_granted=True,credential_handling=True)); assert d.blocked and d.risk_level==RiskLevel.critical
+
+# Module 14 refinement coverage: fail-closed authorization and M13 audit integration.
+from datetime import datetime, timezone
+from app.schemas.audit import AuditStatus, EventType
+
+def test_missing_authorization_requires_review():
+    d = action_check(ActionSecurityRequest(request_id=RID, action_category=ActionCategory.information))
+    assert d.decision == SecurityDecisionType.review_required
+    assert d.blocked is False
+
+def test_permission_allow_mismatch_blocks():
+    d = action_check(ActionSecurityRequest(request_id=RID, action_category=ActionCategory.information, permission_decision="ALLOW", permission_granted=False))
+    assert d.blocked and d.decision == SecurityDecisionType.block
+
+def test_permission_deny_blocks():
+    d = action_check(ActionSecurityRequest(request_id=RID, action_category=ActionCategory.information, permission_decision="DENY", permission_granted=True))
+    assert d.blocked
+
+def test_permission_review_does_not_become_allow():
+    d = action_check(ActionSecurityRequest(request_id=RID, action_category=ActionCategory.information, permission_decision="REQUIRE_APPROVAL", permission_granted=True))
+    assert d.decision == SecurityDecisionType.review_required
+    assert d.blocked is False
+
+def test_allowed_action_requires_explicit_permission_context():
+    d = action_check(ActionSecurityRequest(request_id=RID, action_category=ActionCategory.read, permission_granted=True, permission_decision="ALLOW"))
+    assert d.decision == SecurityDecisionType.allow
+
+def test_security_audit_event_generation_is_secret_free():
+    d = check_request(req(content="hello"))
+    event = build_security_audit_event(d, timestamp=datetime(2026, 1, 1, tzinfo=timezone.utc))
+    assert event.event_type == EventType.security_event
+    assert event.status == AuditStatus.success
+    assert "password" not in event.model_dump_json().lower()
+    assert "token" not in event.model_dump_json().lower()
+
+def test_security_audit_event_uses_explicit_timestamp():
+    d = check_request(req(content="hello"))
+    ts = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    event = build_security_audit_event(d, timestamp=ts)
+    assert event.timestamp == ts
+
+def test_blocked_security_audit_event_status():
+    d = check_request(req(content="password=secret"))
+    event = build_security_audit_event(d, timestamp=datetime(2026, 1, 1, tzinfo=timezone.utc))
+    assert event.status == AuditStatus.blocked
+
+def test_review_security_audit_event_status():
+    d = action_check(ActionSecurityRequest(request_id=RID, action_category=ActionCategory.read))
+    event = build_security_audit_event(d, timestamp=datetime(2026, 1, 1, tzinfo=timezone.utc))
+    assert event.status == AuditStatus.pending
+
+def test_audit_integration_reuses_existing_service():
+    from app.services.audit_service import AuditService
+    from app.services.audit.in_memory_repository import InMemoryAuditRepository
+    d = check_request(req(content="hello"))
+    request = build_security_audit_event(d, timestamp=datetime(2026, 1, 1, tzinfo=timezone.utc))
+    result = AuditService(InMemoryAuditRepository()).create_event(request)
+    assert result.success and result.event is not None
+    assert result.event.event_type == EventType.security_event
+
+def test_no_execution_primitives_in_security_service():
+    import ast
+    source = open(ss.__file__, encoding="utf-8").read()
+    tree = ast.parse(source)
+    forbidden = {"eval", "exec", "system", "popen", "call", "run", "Popen"}
+    calls = {n.func.id for n in ast.walk(tree) if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)}
+    assert not (calls & forbidden)
+
+def test_malformed_security_request_fails_closed():
+    with pytest.raises(ValidationError):
+        SecurityCheckRequest.model_validate({"content": "hello"})
+
+def test_unknown_policy_version_rejected():
+    with pytest.raises(ValidationError):
+        SecurityCheckRequest(request_id=RID, policy_version="999")
+
+def test_security_service_has_no_network_or_execution_imports():
+    import ast
+    tree = ast.parse(open(ss.__file__, encoding="utf-8").read())
+    forbidden_modules = {"requests", "httpx", "socket", "subprocess", "os", "pathlib", "webbrowser"}
+    imported = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imported.update(a.name.split(".")[0] for a in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            imported.add(node.module.split(".")[0])
+    assert not (imported & forbidden_modules)
+
+def test_m14_does_not_import_execution_engines():
+    import ast
+    tree = ast.parse(open(ss.__file__, encoding="utf-8").read())
+    source = open(ss.__file__, encoding="utf-8").read()
+    assert "app.services.action_service" not in source
+    assert "app.services.execution_service" not in source
+    assert not any(isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id in {"eval", "exec"} for n in ast.walk(tree))

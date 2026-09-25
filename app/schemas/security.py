@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -106,6 +106,7 @@ class ActionSecurityRequest(BaseModel):
     action_category: ActionCategory
     content: str = ""
     permission_granted: bool = False
+    permission_decision: Literal["ALLOW", "REQUIRE_APPROVAL", "DENY"] | None = None
     credential_handling: bool = False
     metadata: dict[str, Any] = Field(default_factory=dict)
     policy_version: str = POLICY_VERSION
@@ -121,6 +122,7 @@ class SecurityPolicyRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     request_id: UUID
     permission_granted: bool
+    permission_decision: Literal["ALLOW", "REQUIRE_APPROVAL", "DENY"] | None = None
     action_category: ActionCategory
     credential_handling: bool = False
     policy_version: str = POLICY_VERSION

@@ -4,6 +4,7 @@ import base64
 import json
 import re
 import urllib.parse
+from datetime import datetime
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -13,6 +14,7 @@ from app.schemas.security import (
     SecurityDecision, SecurityDecisionType, SecurityPolicyRequest,
     ThreatType, URLSecurityRequest,
 )
+from app.schemas.audit import ActorType, AuditEventCreateRequest, AuditStatus, EventType, Severity
 
 MAX_TEXT_LENGTH = 10_000
 MAX_METADATA_SIZE = 32_768
@@ -193,20 +195,58 @@ def check_url(req: URLSecurityRequest) -> SecurityDecision:
 
 
 def action_check(req: ActionSecurityRequest) -> SecurityDecision:
-    cat=req.action_category
-    if cat == ActionCategory.unknown: r=_threat_result(SecurityCheckType.action_safety_check, ThreatType.unsafe_action, RiskLevel.high, "Unknown action category requires review")
-    elif req.credential_handling or cat == ActionCategory.authentication: r=_threat_result(SecurityCheckType.action_safety_check, ThreatType.credential_exposure, RiskLevel.critical, "Credential or authentication operation is security-sensitive")
-    elif cat in {ActionCategory.financial, ActionCategory.purchase}: r=_threat_result(SecurityCheckType.action_safety_check, ThreatType.unsafe_action, RiskLevel.critical, "Financial operation is security-sensitive")
-    elif cat in {ActionCategory.deletion, ActionCategory.account_change, ActionCategory.form_submission}: r=_threat_result(SecurityCheckType.action_safety_check, ThreatType.unsafe_action, RiskLevel.high, "High-impact action requires security review")
-    elif cat == ActionCategory.external_side_effect: r=_threat_result(SecurityCheckType.action_safety_check, ThreatType.unsafe_action, RiskLevel.medium, "External side effect requires security review")
-    elif cat == ActionCategory.communication: r=SecurityCheckResult(check_type=SecurityCheckType.action_safety_check, passed=True, risk_level=RiskLevel.medium, threat_type=ThreatType.none, reason="Communication classified as medium risk")
-    elif cat == ActionCategory.draft: r=SecurityCheckResult(check_type=SecurityCheckType.action_safety_check, passed=True, risk_level=RiskLevel.low, threat_type=ThreatType.none, reason="Draft action classified as low risk")
-    else: r=SecurityCheckResult(check_type=SecurityCheckType.action_safety_check, passed=True, risk_level=RiskLevel.low, threat_type=ThreatType.none, reason="Read-only/information action classified as low risk")
-    if r.passed and req.content:
-        s=detect_secret(req.content, req.metadata)
-        if not s.passed: r=s.model_copy(update={"check_type": SecurityCheckType.action_safety_check})
-    return _decision(req.request_id,[r],[SecurityCheckType.action_safety_check])
+    cat = req.action_category
 
+    if cat == ActionCategory.unknown:
+        r = _threat_result(SecurityCheckType.action_safety_check, ThreatType.unsafe_action, RiskLevel.high, "Unknown action category requires review")
+    elif req.credential_handling or cat == ActionCategory.authentication:
+        r = _threat_result(SecurityCheckType.action_safety_check, ThreatType.credential_exposure, RiskLevel.critical, "Credential or authentication operation is security-sensitive")
+    elif cat in {ActionCategory.financial, ActionCategory.purchase}:
+        r = _threat_result(SecurityCheckType.action_safety_check, ThreatType.unsafe_action, RiskLevel.critical, "Financial operation is security-sensitive")
+    elif cat in {ActionCategory.deletion, ActionCategory.account_change, ActionCategory.form_submission}:
+        r = _threat_result(SecurityCheckType.action_safety_check, ThreatType.unsafe_action, RiskLevel.high, "High-impact action requires security review")
+    elif cat == ActionCategory.external_side_effect:
+        r = _threat_result(SecurityCheckType.action_safety_check, ThreatType.unsafe_action, RiskLevel.medium, "External side effect requires security review")
+    elif cat == ActionCategory.communication:
+        r = SecurityCheckResult(check_type=SecurityCheckType.action_safety_check, passed=True, risk_level=RiskLevel.medium, threat_type=ThreatType.none, reason="Communication classified as medium risk")
+    elif cat == ActionCategory.draft:
+        r = SecurityCheckResult(check_type=SecurityCheckType.action_safety_check, passed=True, risk_level=RiskLevel.low, threat_type=ThreatType.none, reason="Draft action classified as low risk")
+    else:
+        r = SecurityCheckResult(check_type=SecurityCheckType.action_safety_check, passed=True, risk_level=RiskLevel.low, threat_type=ThreatType.none, reason="Read-only/information action classified as low risk")
+
+    if r.passed and req.content:
+        s = detect_secret(req.content, req.metadata)
+        if not s.passed:
+            r = s.model_copy(update={"check_type": SecurityCheckType.action_safety_check})
+
+    # M14 never grants authorization. It only verifies that the supplied
+    # authorization context is sufficient and consistent with the security
+    # policy. Missing or contradictory authorization fails closed.
+    if not r.passed:
+        return _decision(req.request_id, [r], [SecurityCheckType.action_safety_check])
+
+    if req.permission_decision == "DENY":
+        r = _threat_result(SecurityCheckType.permission_policy_check, ThreatType.unsafe_action, RiskLevel.high, "Authorization context denies this action")
+        return _decision(req.request_id, [r], [SecurityCheckType.permission_policy_check])
+
+    if req.permission_decision == "REQUIRE_APPROVAL":
+        r = SecurityCheckResult(check_type=SecurityCheckType.permission_policy_check, passed=False, risk_level=RiskLevel.high, threat_type=ThreatType.unsafe_action, reason="Authorization requires approval before security clearance")
+        decision = _decision(req.request_id, [r], [SecurityCheckType.permission_policy_check])
+        return decision.model_copy(update={"decision": SecurityDecisionType.review_required, "blocked": False})
+
+    if req.permission_decision == "ALLOW" and not req.permission_granted:
+        r = _threat_result(SecurityCheckType.permission_policy_check, ThreatType.invalid_request, RiskLevel.high, "Authorization context is inconsistent")
+        return _decision(req.request_id, [r], [SecurityCheckType.permission_policy_check])
+
+    if req.permission_decision is None and not req.permission_granted:
+        decision = _decision(req.request_id, [r], [SecurityCheckType.action_safety_check])
+        return decision.model_copy(update={
+            "decision": SecurityDecisionType.review_required,
+            "blocked": False,
+            "reason": "Missing authorization context requires security review",
+        })
+
+    return _decision(req.request_id, [r], [SecurityCheckType.action_safety_check])
 
 def permission_policy_check(req: SecurityPolicyRequest) -> SecurityDecision:
     if req.credential_handling or req.action_category == ActionCategory.authentication:
@@ -226,3 +266,60 @@ def sanitize_text(text: str) -> tuple[str, bool]:
     cleaned=CONTROL_RE.sub("", text.replace("\x00", ""))
     cleaned=re.sub(r"\s+", " ", cleaned).strip()
     return cleaned, cleaned != text
+
+
+def build_security_audit_event(
+    decision: SecurityDecision,
+    *,
+    timestamp: datetime,
+    actor: ActorType = ActorType.system,
+    correlation_id: UUID | None = None,
+    action_id: UUID | None = None,
+    user_id: UUID | None = None,
+) -> AuditEventCreateRequest:
+    """Build a secret-free M13 audit request from a security decision.
+
+    Persistence is deliberately delegated to the existing AuditService/repository.
+    ``timestamp`` is explicit so M14 remains deterministic and does not read the
+    machine clock. Only structured decision data is copied into metadata.
+    """
+    status = (
+        AuditStatus.blocked
+        if decision.decision == SecurityDecisionType.block
+        else AuditStatus.pending
+        if decision.decision == SecurityDecisionType.review_required
+        else AuditStatus.success
+    )
+    severity = {
+        RiskLevel.none: Severity.info,
+        RiskLevel.low: Severity.low,
+        RiskLevel.medium: Severity.medium,
+        RiskLevel.high: Severity.high,
+        RiskLevel.critical: Severity.critical,
+    }[decision.risk_level]
+    metadata = {
+        "decision": decision.decision.value,
+        "risk_level": decision.risk_level.value,
+        "threat_detected": decision.threat_detected,
+        "threat_types": [t.value for t in decision.threat_types],
+        "checks_performed": [c.value for c in decision.checks_performed],
+        "policy_version": decision.policy_version,
+    }
+    return AuditEventCreateRequest(
+        request_id=decision.request_id,
+        timestamp=timestamp,
+        module="security",
+        event_type=EventType.security_event,
+        status=status,
+        severity=severity,
+        actor=actor,
+        action_id=action_id,
+        resource_type="security_check",
+        resource_id=decision.security_check_id,
+        message="Security decision evaluated",
+        metadata=metadata,
+        correlation_id=correlation_id or decision.request_id,
+        user_id=user_id,
+        policy_version=decision.policy_version,
+        reason=decision.reason,
+    )
