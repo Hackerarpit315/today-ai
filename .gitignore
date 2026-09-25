@@ -16,3 +16,4 @@ htmlcov/
 # Local SQLite persistence
 data/*.db
 data/*.sqlite3
+.env
