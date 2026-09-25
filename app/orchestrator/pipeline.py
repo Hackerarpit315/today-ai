@@ -10,6 +10,9 @@ from uuid import UUID
 from pydantic import ValidationError
 
 from app.core.security import AppError
+from app.llm.provider import LLMProvider
+from app.llm.schemas import LLMRequest
+from app.schemas.intent import IntentResponse
 from app.schemas.context import ContextRequest
 from app.schemas.input import InputRequest
 from app.schemas.intent import IntentRequest
@@ -49,8 +52,14 @@ class Orchestrator:
     on the first exception.
     """
 
-    def __init__(self, services: Mapping[str, Any] | None = None) -> None:
+    def __init__(
+        self,
+        services: Mapping[str, Any] | None = None,
+        *,
+        llm_provider: LLMProvider | None = None,
+    ) -> None:
         self._services = dict(services or {})
+        self._llm_provider = llm_provider
 
     def _service(self, name: str, default: Any) -> Any:
         return self._services.get(name, default)
@@ -74,15 +83,34 @@ class Orchestrator:
             completed["input"] = accepted.model_dump(mode="json")
             result.stage_results["input"] = completed["input"]
 
-            # M2
-            intent = self._service("intent", intent_service).process_intent(
-                IntentRequest(
-                    request_id=request.request_id,
-                    input_type=accepted.input_type,
-                    content=accepted.content,
-                    status=accepted.status,
+            # M2 / LLM understanding: the LLM is interpretation-only.
+            # The result is validated against the existing IntentResponse
+            # contract before any later deterministic module receives it.
+            if self._llm_provider is not None:
+                llm_response = self._llm_provider.generate(
+                    LLMRequest(
+                        request_id=request.request_id,
+                        user_input=accepted.content,
+                        current_datetime=request.current_datetime,
+                    )
                 )
-            )
+                intent = IntentResponse(
+                    request_id=llm_response.request_id,
+                    intent=llm_response.intent,
+                    goal=llm_response.goal,
+                    entities=llm_response.entities,
+                    time_reference=llm_response.time_reference,
+                    confidence=llm_response.confidence,
+                )
+            else:
+                intent = self._service("intent", intent_service).process_intent(
+                    IntentRequest(
+                        request_id=request.request_id,
+                        input_type=accepted.input_type,
+                        content=accepted.content,
+                        status=accepted.status,
+                    )
+                )
             completed["intent"] = intent
             result.intent = _serialize(intent)
             result.stage_results["intent"] = result.intent

@@ -6,6 +6,7 @@ from uuid import uuid4
 
 from fastapi import APIRouter
 
+from app.llm.factory import create_llm_provider
 from app.orchestrator.pipeline import Orchestrator
 from app.orchestrator.schemas import PipelineRequest
 from app.schemas.assistant import AssistantRequest, AssistantResponse
@@ -17,7 +18,10 @@ router = APIRouter(prefix="/api", tags=["assistant"])
 def assistant(request: AssistantRequest) -> AssistantResponse:
     """Accept a user request, run the existing orchestrator, and expose its result."""
     request_id = uuid4()
-    pipeline_result = Orchestrator().run(
+    llm_provider = create_llm_provider()
+    pipeline_result = Orchestrator(
+        llm_provider=llm_provider,
+    ).run(
         PipelineRequest(
             request_id=request_id,
             text=request.content,

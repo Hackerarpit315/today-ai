@@ -100,6 +100,9 @@ def test_orchestrator_success_is_returned(monkeypatch):
     result = PipelineResult(request_id=fake_id, status="success", current_stage="today")
 
     class FakeOrchestrator:
+        def __init__(self, **_kwargs):
+            pass
+
         def run(self, request):
             assert request.request_id != UUID(int=0)
             assert request.current_datetime.isoformat() == "2026-09-15T10:00:00+05:30"
@@ -122,6 +125,9 @@ def test_orchestrator_stage_failure_is_returned_safely(monkeypatch):
     )
 
     class FakeOrchestrator:
+        def __init__(self, **_kwargs):
+            pass
+
         def run(self, request):
             return result
 
@@ -136,6 +142,9 @@ def test_orchestrator_stage_failure_is_returned_safely(monkeypatch):
 
 def test_unexpected_internal_error_is_safe(monkeypatch):
     class BrokenOrchestrator:
+        def __init__(self, **_kwargs):
+            pass
+
         def run(self, request):
             raise RuntimeError("secret internal detail")
 
@@ -148,6 +157,9 @@ def test_unexpected_internal_error_is_safe(monkeypatch):
 
 def test_no_stack_trace_on_orchestrator_error(monkeypatch):
     class BrokenOrchestrator:
+        def __init__(self, **_kwargs):
+            pass
+
         def run(self, request):
             raise ValueError('File "secret.py", line 1')
 
@@ -173,6 +185,9 @@ def test_same_explicit_context_produces_same_stage_content(monkeypatch):
     fixed_id = UUID("33333333-3333-4333-8333-333333333333")
 
     class FixedIdOrchestrator:
+        def __init__(self, **_kwargs):
+            pass
+
         def run(self, request):
             return PipelineResult(
                 request_id=fixed_id,
@@ -192,6 +207,9 @@ def test_explicit_datetime_reaches_orchestrator(monkeypatch):
     seen = {}
 
     class InspectingOrchestrator:
+        def __init__(self, **_kwargs):
+            pass
+
         def run(self, request):
             seen["dt"] = request.current_datetime
             return PipelineResult(request_id=request.request_id, status="success", current_stage="today")
@@ -205,6 +223,9 @@ def test_client_cannot_control_request_id(monkeypatch):
     seen = {}
 
     class InspectingOrchestrator:
+        def __init__(self, **_kwargs):
+            pass
+
         def run(self, request):
             seen["id"] = request.request_id
             return PipelineResult(request_id=request.request_id, status="success", current_stage="today")
