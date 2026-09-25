@@ -3,3 +3,4 @@ uvicorn
 pydantic
 pytest
 httpx
+openai>=1.66.0,<4

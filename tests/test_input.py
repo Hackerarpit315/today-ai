@@ -287,6 +287,15 @@ def test_app_source_has_no_forbidden_constructs():
             if isinstance(node, ast.Import):
                 for alias in node.names:
                     root_name = alias.name.split(".")[0].lower()
+
+                    # Allow OpenAI only in the dedicated provider.
+                    if (
+                        root_name == "openai"
+                        and path.relative_to(APP_ROOT).as_posix()
+                        == "llm/openai_provider.py"
+                    ):
+                        continue
+
                     assert root_name not in forbidden_imports, (
                         f"Forbidden import {alias.name} found in {path}"
                     )
@@ -294,6 +303,15 @@ def test_app_source_has_no_forbidden_constructs():
             # Detect: from openai import ...
             elif isinstance(node, ast.ImportFrom):
                 module = (node.module or "").split(".")[0].lower()
+
+                # Allow OpenAI only in the dedicated provider.
+                if (
+                    module == "openai"
+                    and path.relative_to(APP_ROOT).as_posix()
+                    == "llm/openai_provider.py"
+                ):
+                    continue
+
                 assert module not in forbidden_imports, (
                     f"Forbidden import {node.module} found in {path}"
                 )
@@ -323,7 +341,6 @@ def test_app_source_has_no_forbidden_constructs():
                     assert node.func.id != "HTMLResponse", (
                         f"HTMLResponse found in {path}"
                     )
-
 def test_safe_error_bodies_have_no_traceback(monkeypatch):
     def boom(*_args, **_kwargs):
         raise RuntimeError('secret Traceback File "C:\\\\hidden\\\\app.py"')

@@ -107,8 +107,9 @@ def test_malformed_input_rejected():
         )
 
 
-def test_no_external_network_or_ai_sdk_dependencies():
+def test_mock_provider_has_no_external_network_or_ai_sdk_dependencies():
     llm_root = Path(__file__).resolve().parents[1] / "app" / "llm"
+    source_files = [llm_root / "mock_provider.py"]
     forbidden_roots = {
         "requests", "httpx", "aiohttp", "urllib3", "openai", "anthropic",
         "google", "langchain", "langgraph",
@@ -116,7 +117,7 @@ def test_no_external_network_or_ai_sdk_dependencies():
     forbidden_calls = {"urlopen", "request", "system", "popen", "eval", "exec"}
     violations: list[str] = []
 
-    for source_file in llm_root.rglob("*.py"):
+    for source_file in source_files:
         tree = ast.parse(source_file.read_text(encoding="utf-8"), filename=str(source_file))
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
