@@ -1,1 +1,48 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>JARVIS — Today AI</title><link rel="stylesheet" href="styles.css"></head><body><main class="shell"><header><div><div class="eyebrow">TODAY AI</div><h1>JARVIS</h1></div><div id="status">UI • AVAILABLE</div></header><section class="panel system"><span>Session</span><code id="session">standalone</code><span>Assistant</span><strong id="assistant">IDLE</strong></section><section id="chat" class="chat" aria-live="polite"><div class="bubble assistant">Hello. JARVIS interface ready.</div></section><form id="form"><input id="input" maxlength="10000" autocomplete="off" placeholder="Type a message…"><button type="button" id="mic" title="Voice placeholder">◉</button><button>Send</button></form><div id="error" class="error" hidden></div></main><script src="app.js"></script></body></html>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="JARVIS interface for Today AI">
+  <title>JARVIS — Today AI</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div>
+        <div class="eyebrow">TODAY AI</div>
+        <h1>JARVIS</h1>
+        <p class="subtitle">Your Today AI control surface</p>
+      </div>
+      <div id="status" class="status" aria-live="polite">IDLE</div>
+    </header>
+
+    <section class="panel system" aria-label="Assistant status">
+      <div><span>Connection</span><strong id="connection">READY</strong></div>
+      <div><span>Assistant</span><strong id="assistant">IDLE</strong></div>
+      <div><span>Voice</span><strong id="voice">IDLE</strong></div>
+    </section>
+
+    <section id="chat" class="chat" aria-live="polite" aria-label="Conversation">
+      <div class="bubble assistant">Hello. JARVIS is ready.</div>
+    </section>
+
+    <div id="error" class="error" role="alert" hidden></div>
+
+    <form id="form" class="composer">
+      <label class="sr-only" for="input">Message</label>
+      <textarea id="input" maxlength="10000" rows="2" autocomplete="off" placeholder="Type a message…"></textarea>
+      <div class="controls">
+        <button type="button" id="mic" aria-label="Start voice input" title="Start voice input">🎤</button>
+        <button type="button" id="stop-speech" aria-label="Stop speaking" title="Stop speaking">🔇</button>
+        <button type="button" id="clear" aria-label="Clear conversation" title="Clear conversation">Clear</button>
+        <button type="submit" id="send">Send</button>
+      </div>
+    </form>
+
+    <p class="hint">Voice input uses your browser microphone. Your transcript is sent through the same assistant endpoint as typed text.</p>
+  </main>
+  <script src="app.js" defer></script>
+</body>
+</html>

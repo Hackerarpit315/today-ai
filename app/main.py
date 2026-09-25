@@ -1,10 +1,12 @@
 """Today AI Module 1 — Input Layer HTTP app."""
 
 import logging
+from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
@@ -26,6 +28,11 @@ app = FastAPI(
 ) 
 app.include_router(input_router)
 app.include_router(assistant_router)
+
+# M15: serve the local JARVIS presentation layer. API routes remain authoritative.
+_FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
+if _FRONTEND_DIR.is_dir():
+    app.mount("/", StaticFiles(directory=_FRONTEND_DIR, html=True), name="frontend")
 
 # Last added runs first. Access log is outermost so 413/415 are logged.
 app.add_middleware(BodySizeLimitMiddleware)
