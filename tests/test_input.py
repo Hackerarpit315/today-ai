@@ -97,7 +97,10 @@ def test_missing_content_rejected():
 def test_invalid_input_type_rejected():
     response = post_json({"input_type": "video", "content": "hello"})
     body = assert_error(response, 422)
-    assert "unknown" in body["message"].lower() or "input_type" in body["message"].lower()
+    assert (
+        "unknown" in body["message"].lower()
+        or "input_type" in body["message"].lower()
+    )
 
 
 def test_unsupported_input_types_rejected():
@@ -116,13 +119,19 @@ def test_missing_input_type_rejected():
 def test_content_at_limit_accepted_over_limit_rejected():
     at_limit = "a" * MAX_CONTENT_LENGTH
     over_limit = "a" * (MAX_CONTENT_LENGTH + 1)
+
     ok = post_json({"input_type": "text", "content": at_limit})
     assert ok.status_code == 200
     assert ok.json()["content"] == at_limit
+
     too_long = post_json({"input_type": "text", "content": over_limit})
     body = assert_error(too_long, 413)
     assert body["error"] == "payload_too_large"
-    assert too_long.json()["content"] != over_limit if "content" in too_long.json() else True
+    assert (
+        too_long.json()["content"] != over_limit
+        if "content" in too_long.json()
+        else True
+    )
 
 
 def test_special_characters_preserved():
@@ -164,7 +173,9 @@ def test_template_expression_is_plain_text():
 
 
 def test_prompt_injection_string_is_plain_text():
-    body = post_json({"input_type": "text", "content": PROMPT_INJECTION}).json()
+    body = post_json(
+        {"input_type": "text", "content": PROMPT_INJECTION}
+    ).json()
     assert body["content"] == PROMPT_INJECTION
     assert body["status"] == "accepted"
 
@@ -182,8 +193,14 @@ def test_request_id_is_server_generated_uuid4():
 
 
 def test_two_requests_get_different_ids():
-    first = post_json({"input_type": "text", "content": "one"}).json()["request_id"]
-    second = post_json({"input_type": "text", "content": "two"}).json()["request_id"]
+    first = post_json(
+        {"input_type": "text", "content": "one"}
+    ).json()["request_id"]
+
+    second = post_json(
+        {"input_type": "text", "content": "two"}
+    ).json()["request_id"]
+
     assert first != second
 
 
@@ -207,7 +224,10 @@ def test_extra_fields_rejected():
         }
     )
     body = assert_error(response, 422)
-    assert "extra" in body["message"].lower() or "not allowed" in body["message"].lower()
+    assert (
+        "extra" in body["message"].lower()
+        or "not allowed" in body["message"].lower()
+    )
 
 
 def test_invalid_field_types_rejected():
@@ -217,6 +237,7 @@ def test_invalid_field_types_rejected():
 
 def test_input_never_executed_and_is_echoed():
     pid_before = os.getpid()
+
     payloads = [
         "<script>alert(1)</script>",
         "' OR '1'='1",
@@ -225,11 +246,16 @@ def test_input_never_executed_and_is_echoed():
         "{{7*7}}",
         PROMPT_INJECTION,
     ]
+
     for content in payloads:
-        body = post_json({"input_type": "text", "content": content}).json()
+        body = post_json(
+            {"input_type": "text", "content": content}
+        ).json()
         assert body["content"] == content
+
     assert os.getpid() == pid_before
-    
+
+
 def test_app_source_has_no_forbidden_constructs():
     import ast
 
@@ -264,6 +290,11 @@ def test_app_source_has_no_forbidden_constructs():
         "..\\",
     )
 
+    allowed_openai_providers = {
+        "llm/openai_provider.py",
+        "llm/openrouter_provider.py",
+    }
+
     for path in APP_ROOT.rglob("*.py"):
         text = path.read_text(encoding="utf-8")
         lowered = text.lower()
@@ -281,6 +312,8 @@ def test_app_source_has_no_forbidden_constructs():
                 f"Could not parse Python source: {path}"
             ) from exc
 
+        relative_path = path.relative_to(APP_ROOT).as_posix()
+
         for node in ast.walk(tree):
 
             # Detect: import openai
@@ -288,11 +321,10 @@ def test_app_source_has_no_forbidden_constructs():
                 for alias in node.names:
                     root_name = alias.name.split(".")[0].lower()
 
-                    # Allow OpenAI only in the dedicated provider.
+                    # Allow OpenAI SDK only in dedicated LLM providers.
                     if (
                         root_name == "openai"
-                        and path.relative_to(APP_ROOT).as_posix()
-                        == "llm/openai_provider.py"
+                        and relative_path in allowed_openai_providers
                     ):
                         continue
 
@@ -304,11 +336,10 @@ def test_app_source_has_no_forbidden_constructs():
             elif isinstance(node, ast.ImportFrom):
                 module = (node.module or "").split(".")[0].lower()
 
-                # Allow OpenAI only in the dedicated provider.
+                # Allow OpenAI SDK only in dedicated LLM providers.
                 if (
                     module == "openai"
-                    and path.relative_to(APP_ROOT).as_posix()
-                    == "llm/openai_provider.py"
+                    and relative_path in allowed_openai_providers
                 ):
                     continue
 
@@ -323,7 +354,7 @@ def test_app_source_has_no_forbidden_constructs():
                         f"Forbidden call {node.func.id} found in {path}"
                     )
 
-                # Detect: os.system(...), subprocess.run(...), etc.
+                # Detect os.system(...), subprocess.run(...), etc.
                 elif isinstance(node.func, ast.Attribute):
                     if isinstance(node.func.value, ast.Name):
                         pair = (
@@ -341,20 +372,39 @@ def test_app_source_has_no_forbidden_constructs():
                     assert node.func.id != "HTMLResponse", (
                         f"HTMLResponse found in {path}"
                     )
+
+
 def test_safe_error_bodies_have_no_traceback(monkeypatch):
     def boom(*_args, **_kwargs):
-        raise RuntimeError('secret Traceback File "C:\\\\hidden\\\\app.py"')
+        raise RuntimeError(
+            'secret Traceback File "C:\\\\hidden\\\\app.py"'
+        )
 
-    monkeypatch.setattr("app.api.routes.input.input_service.accept", boom)
-    quiet_client = TestClient(app, raise_server_exceptions=False)
-    response = quiet_client.post(ENDPOINT, json={"input_type": "text", "content": "hello"})
+    monkeypatch.setattr(
+        "app.api.routes.input.input_service.accept",
+        boom,
+    )
+
+    quiet_client = TestClient(
+        app,
+        raise_server_exceptions=False,
+    )
+
+    response = quiet_client.post(
+        ENDPOINT,
+        json={"input_type": "text", "content": "hello"},
+    )
+
     body = response.json()
+
     assert response.status_code == 500
     assert set(body.keys()) == {"error", "message", "status"}
     assert body["error"] == "internal_error"
     assert body["status"] == 500
     assert body["message"] == "An unexpected error occurred."
+
     blob = str(body)
+
     assert "Traceback" not in blob
     assert 'File "' not in blob
     assert "secret" not in blob.lower()
@@ -367,22 +417,27 @@ def test_non_json_content_type_rejected():
         content=b'{"input_type":"text","content":"hello"}',
         headers={"Content-Type": "text/plain"},
     )
+
     body = assert_error(response, 415)
     assert body["error"] == "unsupported_media_type"
 
 
 def test_oversized_body_rejected():
     oversized = b"x" * (MAX_REQUEST_BODY_BYTES + 1)
+
     response = client.post(
         ENDPOINT,
         content=oversized,
         headers={"Content-Type": "application/json"},
     )
+
     body = assert_error(response, 413)
     assert body["error"] == "payload_too_large"
 
 
 def test_strip_only_edges_preserves_inner_whitespace():
     content = "  keep  inner   spaces  "
-    body = post_json({"input_type": "text", "content": content}).json()
+    body = post_json(
+        {"input_type": "text", "content": content}
+    ).json()
     assert body["content"] == "keep  inner   spaces"
