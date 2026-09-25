@@ -10,6 +10,11 @@ class ApprovalStatus(str, Enum):
     approved = "approved"
     denied = "denied"
 
+class PermissionDecisionType(str, Enum):
+    allow = "ALLOW"
+    require_approval = "REQUIRE_APPROVAL"
+    deny = "DENY"
+
 class PermissionState(str, Enum):
     not_required = "not_required"
     required = "required"
@@ -92,7 +97,7 @@ class Approval(BaseModel):
 
 class PermissionPolicy(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    allow_low_risk_without_approval: bool = False
+    allow_low_risk_without_approval: bool = True
     allow_medium_risk_without_approval: bool = False
     policy_version: str = Field(default="permission-policy-v1", min_length=1, max_length=64)
 
@@ -133,6 +138,7 @@ class PermissionDecision(BaseModel):
     request_id: UUID
     action_id: str
     action_type: str
+    decision: PermissionDecisionType
     action_category: ActionCategory
     risk_level: RiskLevel
     permission_required: bool
