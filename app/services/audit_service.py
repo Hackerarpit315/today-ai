@@ -60,6 +60,11 @@ class AuditService:
         return True
 
     @classmethod
+    def _validate_text(cls, value: str, field_name: str) -> None:
+        if any(pattern.search(value) for pattern in cls._SECRET_PATTERNS):
+            raise ValueError(f"Sensitive credential data cannot be stored in audit records ({field_name})")
+
+    @classmethod
     def _validate_metadata(cls, metadata: dict[str, Any]) -> None:
         try:
             encoded = json.dumps(metadata, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
@@ -101,6 +106,18 @@ class AuditService:
 
     def create_event(self, request: AuditEventCreateRequest) -> AuditEventResponse:
         self._validate_metadata(request.metadata)
+        for field_name in (
+            "message",
+            "resource_type",
+            "error_code",
+            "reason",
+            "ip_hash",
+            "policy_version",
+        ):
+            value = getattr(request, field_name)
+            if value is not None:
+                self._validate_text(value, field_name)
+
         # UUID is generated only as an identity; all business-time inputs remain explicit.
         provisional = AuditEvent(
             **request.model_dump(),
@@ -108,7 +125,12 @@ class AuditService:
         )
         integrity_hash = self.calculate_integrity_hash(provisional)
         event = provisional.model_copy(update={"integrity_hash": integrity_hash})
-        created = self.repository.create(event)
+        try:
+            created = self.repository.create(event)
+        except Exception:
+            # Do not leak storage/driver details to callers. Audit failure is a
+            # controlled rejection; this service never executes or authorizes actions.
+            raise ValueError("Audit event could not be recorded") from None
         return AuditEventResponse(success=True, status="created", event=created, event_id=created.event_id, reason="Audit event created successfully")
 
     def retrieve_event(self, request: AuditEventRetrieveRequest) -> AuditEventResponse:

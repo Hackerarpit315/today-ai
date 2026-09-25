@@ -292,3 +292,61 @@ def test_create_does_not_change_input_request():
 def test_event_model_rejects_missing_integrity_hash():
     with pytest.raises(ValidationError):
         AuditEvent(**make_request().model_dump())
+
+
+def test_secret_in_message_is_rejected_without_echoing_secret():
+    secret = "password=super-secret-value"
+    with pytest.raises(ValueError, match="Sensitive credential data") as exc_info:
+        AuditService().create_event(make_request(message=secret))
+    assert secret not in str(exc_info.value)
+
+
+def test_audit_repository_failure_is_safe_and_does_not_leak_storage_error():
+    class FailingRepository:
+        def create(self, _event):
+            raise RuntimeError("sqlite password=super-secret-value leaked")
+
+        def get_by_id(self, _event_id):
+            return None
+
+        def all(self):
+            return []
+
+        def list(self, events, *, ascending, offset, limit):
+            return []
+
+        def search(self, events, query, *, ascending, offset, limit):
+            return []
+
+        def count(self, events):
+            return 0
+
+    with pytest.raises(ValueError, match="Audit event could not be recorded") as exc_info:
+        AuditService(FailingRepository()).create_event(make_request())
+    assert "super-secret-value" not in str(exc_info.value)
+
+
+def test_audit_module_has_no_external_network_or_dynamic_execution():
+    import ast
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1] / "app"
+    forbidden_imports = {"requests", "httpx", "aiohttp", "urllib3", "urllib.request"}
+    forbidden_calls = {"urlopen", "urlretrieve", "system", "popen", "eval", "exec"}
+    violations = []
+    for source in [root / "services" / "audit_service.py", root / "services" / "audit", root / "api" / "routes" / "audit.py"]:
+        paths = [source] if source.is_file() else list(source.rglob("*.py"))
+        for path in paths:
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    for alias in node.names:
+                        if alias.name.split(".")[0] in forbidden_imports:
+                            violations.append(f"{path}: import {alias.name}")
+                elif isinstance(node, ast.ImportFrom) and node.module:
+                    if node.module.split(".")[0] in forbidden_imports:
+                        violations.append(f"{path}: from {node.module}")
+                elif isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+                    if node.func.id in forbidden_calls:
+                        violations.append(f"{path}: {node.func.id}()")
+    assert not violations, "\\n".join(violations)
