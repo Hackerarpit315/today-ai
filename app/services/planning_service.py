@@ -69,6 +69,37 @@ def _constraint_text(payload: PlanningRequest) -> str:
     return "; ".join(parts)
 
 
+_MULTI_STEP_ACTIONS = frozenset(
+    {
+        "learn", "study", "prepare", "master", "build", "develop",
+        "organize", "implement", "migrate", "launch", "improve",
+        "practice", "train", "plan",
+    }
+)
+_SIMPLE_TASK_INTENTS = frozenset({"task", "reminder", "command"})
+
+
+def _is_multi_step_goal(payload: PlanningRequest, tokens: set[str]) -> bool:
+    """Identify broad outcome-oriented goals without depending on a domain-specific example."""
+    if tokens.intersection(_MULTI_STEP_ACTIONS):
+        return True
+    if payload.time_reference and any(
+        marker in payload.time_reference.casefold()
+        for marker in ("day", "days", "week", "weeks", "month", "months")
+    ) and len(tokens) >= 3:
+        return True
+    return False
+
+
+def _simple_task_draft(payload: PlanningRequest) -> _StepDraft:
+    """Represent a directly actionable task as one non-executing step."""
+    title = payload.goal.strip().rstrip(".!?")
+    description = "Complete the task described by the goal without executing it."
+    if payload.time_reference:
+        description = f"Complete this task at the requested time: {payload.time_reference}."
+    return _StepDraft("simple-task", title, description, True)
+
+
 def _explicit_steps(payload: PlanningRequest) -> list[_StepDraft]:
     drafts: list[_StepDraft] = []
     for index, step in enumerate(payload.available_steps, start=1):
@@ -101,6 +132,12 @@ def _derive_steps(payload: PlanningRequest) -> list[_StepDraft]:
     is_booking = _has_any(tokens, "book", "booking", "reserve", "reservation")
     is_purchase = _has_any(tokens, "buy", "purchase", "order", "shopping")
     is_research = _has_any(tokens, "research", "compare", "find", "investigate", "analyze")
+
+    # Direct task/reminder/command goals are represented as one actionable
+    # planning step unless the structured goal clearly describes a broader
+    # outcome that naturally requires multiple stages.
+    if payload.intent.casefold() in _SIMPLE_TASK_INTENTS and not _is_multi_step_goal(payload, tokens):
+        return [_simple_task_draft(payload)]
 
     if is_admission:
         drafts.extend(

@@ -253,3 +253,67 @@ def test_invalid_available_step_structure_is_rejected(client):
     payload = make_request(available_steps=[{"title": "Prepare", "unexpected": True}])
     response = client.post("/api/plan", json=payload)
     assert response.status_code == 422
+
+
+def test_simple_task_produces_one_meaningful_step(client):
+    payload = make_request(
+        goal="Go to college",
+        intent="task",
+        entities={"place": ["college"]},
+        time_reference=None,
+        verified_information=[],
+        constraints=[],
+    )
+    body = client.post("/api/plan", json=payload).json()
+    assert body["total_steps"] == 1
+    assert body["steps"][0]["title"] == "Go to college"
+
+
+def test_tomorrow_task_preserves_time_in_step(client):
+    payload = make_request(
+        goal="Go to college",
+        intent="task",
+        entities={"place": ["college"]},
+        time_reference="tomorrow",
+        verified_information=[],
+        constraints=[],
+    )
+    body = client.post("/api/plan", json=payload).json()
+    assert body["total_steps"] == 1
+    assert "tomorrow" in body["steps"][0]["description"].lower()
+
+
+def test_scheduled_call_task_stays_single_step(client):
+    payload = make_request(
+        goal="Call Rahul",
+        intent="task",
+        entities={"person": ["Rahul"]},
+        time_reference="tomorrow",
+        verified_information=[],
+        constraints=[],
+    )
+    body = client.post("/api/plan", json=payload).json()
+    assert body["total_steps"] == 1
+    assert body["steps"][0]["title"] == "Call Rahul"
+    assert "tomorrow" in body["steps"][0]["description"].lower()
+
+
+def test_genuinely_multi_step_learning_goal_remains_multi_step(client):
+    payload = make_request(
+        goal="Learn Python",
+        intent="task",
+        entities={"topic": ["Python"]},
+        time_reference=None,
+        verified_information=[],
+        constraints=[],
+    )
+    body = client.post("/api/plan", json=payload).json()
+    assert body["total_steps"] > 1
+
+
+def test_existing_application_planning_regression_remains_multi_step(client):
+    body = client.post("/api/plan", json=make_request()).json()
+    titles = [step["title"] for step in body["steps"]]
+    assert body["total_steps"] > 1
+    assert "Confirm the requirements" in titles
+    assert "Upload required documents" in titles
