@@ -1,7 +1,7 @@
 from __future__ import annotations
 from datetime import datetime
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -9,11 +9,6 @@ class ApprovalStatus(str, Enum):
     not_provided = "not_provided"
     approved = "approved"
     denied = "denied"
-
-class PermissionDecisionType(str, Enum):
-    allow = "ALLOW"
-    require_approval = "REQUIRE_APPROVAL"
-    deny = "DENY"
 
 class PermissionState(str, Enum):
     not_required = "not_required"
@@ -97,7 +92,7 @@ class Approval(BaseModel):
 
 class PermissionPolicy(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    allow_low_risk_without_approval: bool = True
+    allow_low_risk_without_approval: bool = False
     allow_medium_risk_without_approval: bool = False
     policy_version: str = Field(default="permission-policy-v1", min_length=1, max_length=64)
 
@@ -133,12 +128,14 @@ class PermissionRequest(BaseModel):
             raise ValueError("current_datetime must be timezone-aware")
         return v
 
+PermissionDecisionValue = Literal["ALLOW", "REQUIRE_APPROVAL", "DENY"]
+
 class PermissionDecision(BaseModel):
     model_config = ConfigDict(extra="forbid")
     request_id: UUID
     action_id: str
+    decision: PermissionDecisionValue = "REQUIRE_APPROVAL"
     action_type: str
-    decision: PermissionDecisionType
     action_category: ActionCategory
     risk_level: RiskLevel
     permission_required: bool

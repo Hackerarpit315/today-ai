@@ -1,7 +1,7 @@
 from __future__ import annotations
 from datetime import datetime, timezone
 from app.schemas.permission import (
-    ActionCategory, ApprovalStatus, PermissionDecision, PermissionDecisionType, PermissionRequest,
+    ActionCategory, ApprovalStatus, PermissionDecision, PermissionRequest,
     PermissionState, Reversibility, RiskLevel,
 )
 
@@ -77,92 +77,61 @@ def _scope_matches(req: PermissionRequest) -> bool:
 
 
 def evaluate(req: PermissionRequest) -> PermissionDecision:
-    """Evaluate permission deterministically without executing the requested action."""
     category = classify(req.action_type)
     risk = risk_for(category, req)
     approval = req.approval
-    scope = req.permission_scope or (approval.scope if approval else None)
-
-    base = dict(
-        request_id=req.request_id,
-        action_id=req.action_id,
-        action_type=req.action_type,
-        action_category=category,
-        risk_level=risk,
-        permission_required=True,
-        permission_state=PermissionState.required,
-        approval_valid=False,
-        external_side_effect=req.external_side_effect,
-        reversibility=req.reversibility,
-        permission_scope=scope,
-        policy_version=req.policy.policy_version,
-    )
-
-    def decision_result(decision: PermissionDecisionType, **overrides) -> PermissionDecision:
-        data = base.copy()
-        data.update(overrides)
-        data["decision"] = decision
-        return PermissionDecision(**data)
+    approval_valid = False
+    state = PermissionState.required
+    required = True
+    code = "APPROVAL_REQUIRED"
 
     if req.approval_status is ApprovalStatus.denied or (approval and approval.status is ApprovalStatus.denied):
-        return decision_result(
-            PermissionDecisionType.deny,
-            permission_state=PermissionState.denied,
+        return PermissionDecision(
+            request_id=req.request_id, action_id=req.action_id, action_type=req.action_type,
+            decision="DENY", action_category=category, risk_level=risk, permission_required=True,
+            permission_state=PermissionState.denied, approval_valid=False,
+            external_side_effect=req.external_side_effect, reversibility=req.reversibility,
+            permission_scope=req.permission_scope or (approval.scope if approval else None),
             reason="User approval was denied; the action cannot proceed.",
-            decision_code="APPROVAL_DENIED",
-        )
+            policy_version=req.policy.policy_version, decision_code="APPROVAL_DENIED")
 
-    if category is ActionCategory.unknown:
-        return decision_result(
-            PermissionDecisionType.deny,
-            permission_state=PermissionState.denied,
-            risk_level=RiskLevel.high,
-            reason="Unknown action types are denied by the fail-closed permission policy.",
-            decision_code="UNKNOWN_ACTION_DENIED",
-        )
+    if category is not ActionCategory.unknown and risk is RiskLevel.low and req.policy.allow_low_risk_without_approval:
+        required = False
+        state = PermissionState.not_required
+        code = "LOW_RISK_POLICY_ALLOWED"
+        reason = "The action is low risk, reversible/non-external, and the supplied policy explicitly allows it without approval."
+    elif category is not ActionCategory.unknown and risk is RiskLevel.medium and req.policy.allow_medium_risk_without_approval:
+        required = False
+        state = PermissionState.not_required
+        code = "MEDIUM_RISK_POLICY_ALLOWED"
+        reason = "The action is medium risk and the supplied policy explicitly allows it without approval."
+    else:
+        reason = "Explicit user approval is required by the conservative permission policy."
 
-    if risk is RiskLevel.critical:
-        return decision_result(
-            PermissionDecisionType.deny,
-            permission_state=PermissionState.denied,
-            reason="Critical or destructive actions are denied by the permission policy.",
-            decision_code="CRITICAL_ACTION_DENIED",
-        )
-
-    if risk is RiskLevel.low and req.policy.allow_low_risk_without_approval:
-        return decision_result(
-            PermissionDecisionType.allow,
-            permission_required=False,
-            permission_state=PermissionState.not_required,
-            reason="The action is low risk and is allowed automatically by policy.",
-            decision_code="LOW_RISK_ALLOWED",
-        )
-
-    if approval and approval.status is ApprovalStatus.approved:
-        if _scope_matches(req):
-            return decision_result(
-                PermissionDecisionType.allow,
-                permission_state=PermissionState.granted,
-                approval_valid=True,
-                reason="Explicit approval is valid and its scope matches this action.",
-                decision_code="APPROVAL_GRANTED",
-            )
-        if approval.expires_at is not None and req.current_datetime is not None and approval.expires_at <= req.current_datetime:
-            return decision_result(
-                PermissionDecisionType.require_approval,
-                permission_state=PermissionState.expired,
-                reason="The supplied approval has expired and cannot authorize this action.",
-                decision_code="APPROVAL_EXPIRED",
-            )
-        return decision_result(
-            PermissionDecisionType.require_approval,
-            permission_state=PermissionState.invalid,
-            reason="Approval was supplied, but its scope does not match this action.",
-            decision_code="APPROVAL_SCOPE_MISMATCH",
-        )
-
-    return decision_result(
-        PermissionDecisionType.require_approval,
-        reason="Explicit user approval is required for this action.",
-        decision_code="APPROVAL_REQUIRED",
-    )
+    if required:
+        if approval and approval.status is ApprovalStatus.approved:
+            if _scope_matches(req):
+                approval_valid = True
+                state = PermissionState.granted
+                code = "APPROVAL_GRANTED"
+                reason = "Explicit approval is valid and its scope matches this action."
+            elif approval.expires_at is not None and req.current_datetime is not None and approval.expires_at <= req.current_datetime:
+                state = PermissionState.expired
+                code = "APPROVAL_EXPIRED"
+                reason = "The supplied approval has expired and cannot authorize this action."
+            else:
+                state = PermissionState.invalid
+                code = "APPROVAL_SCOPE_MISMATCH"
+                reason = "Approval was supplied, but its scope does not match this action."
+        elif req.approval_status is ApprovalStatus.not_provided:
+            state = PermissionState.required
+            code = "APPROVAL_REQUIRED"
+            reason = "No valid explicit approval was supplied for an action requiring permission."
+    decision = "ALLOW" if code in {"LOW_RISK_POLICY_ALLOWED", "MEDIUM_RISK_POLICY_ALLOWED", "APPROVAL_GRANTED"} else ("DENY" if code in {"APPROVAL_DENIED", "APPROVAL_EXPIRED", "APPROVAL_SCOPE_MISMATCH"} else "REQUIRE_APPROVAL")
+    return PermissionDecision(
+        request_id=req.request_id, action_id=req.action_id, action_type=req.action_type,
+        decision=decision, action_category=category, risk_level=risk, permission_required=required,
+        permission_state=state, approval_valid=approval_valid,
+        external_side_effect=req.external_side_effect, reversibility=req.reversibility,
+        permission_scope=req.permission_scope or (approval.scope if approval else None),
+        reason=reason, policy_version=req.policy.policy_version, decision_code=code)

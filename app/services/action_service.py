@@ -104,14 +104,20 @@ class ActionService:
 
     @staticmethod
     def _permission_block_reason(request: ActionRequest) -> str | None:
-        if not request.permission_required:
-            return None
-        if request.permission_state != "granted":
-            return f"permission is not granted: {request.permission_state}"
-        if not request.approval_valid:
-            return "permission approval is not valid"
-        if not ActionService._scope_matches(request):
-            return "requested permission scope does not match granted scope"
+        # Module 10 is execution-only. Authorization belongs to Module 9 and
+        # must arrive as an explicit decision. Missing/uncertain authorization
+        # fails closed before validation, adapter selection, or execution.
+        if request.permission_decision is None:
+            return "missing permission decision from Module 9"
+        if request.permission_decision != "ALLOW":
+            return f"permission decision does not allow execution: {request.permission_decision}"
+        if request.permission_state != "granted" and request.permission_state != "not_required":
+            return f"permission state is not executable: {request.permission_state}"
+        if request.permission_state == "granted":
+            if not request.approval_valid:
+                return "permission approval is not valid"
+            if not ActionService._scope_matches(request):
+                return "requested permission scope does not match granted scope"
         return None
 
     @staticmethod

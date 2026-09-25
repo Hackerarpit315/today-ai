@@ -31,6 +31,7 @@ def make(action_type="no_op", **overrides):
         action_category="information",
         risk_level="low",
         permission_required=False,
+        permission_decision="ALLOW",
         permission_state="not_required",
         approval_valid=False,
         external_side_effect=False,
@@ -48,6 +49,7 @@ def granted(action_type="create_local_note", **overrides):
     s = scope(action_type=action_type)
     base = dict(
         permission_required=True,
+        permission_decision="ALLOW",
         permission_state="granted",
         approval_valid=True,
         permission_scope=s,
@@ -69,14 +71,33 @@ def test_valid_dry_run():
     assert r.executed is False
 
 
-def test_permission_not_required():
+def test_permission_explicit_allow_without_approval():
     r = service.execute(make())
     assert r.blocked is False
+    assert r.status == "executed"
 
 
 def test_permission_granted():
     r = service.execute(granted(parameters={"title": "x", "content": "y"}))
     assert r.status == "executed"
+
+def test_missing_permission_decision_blocks():
+    r = service.execute(make(permission_decision=None))
+    assert r.status == "blocked"
+    assert r.execution_attempted is False
+    assert r.executed is False
+
+def test_require_approval_never_executes():
+    r = service.execute(make(permission_decision="REQUIRE_APPROVAL"))
+    assert r.status == "blocked"
+    assert r.execution_attempted is False
+    assert r.executed is False
+
+def test_deny_never_executes():
+    r = service.execute(make(permission_decision="DENY"))
+    assert r.status == "blocked"
+    assert r.execution_attempted is False
+    assert r.executed is False
 
 
 @pytest.mark.parametrize("state", ["required", "denied", "expired", "invalid", "pending"])
@@ -235,6 +256,10 @@ def test_request_id_preserved():
     r = service.execute(make())
     assert r.request_id == REQ
 
+def test_action_id_preserved():
+    r = service.execute(make())
+    assert r.action_id == ACTION
+
 
 def test_execution_id_is_uuid_and_stable():
     r = service.execute(make())
@@ -256,6 +281,7 @@ def test_malformed_input_rejected():
             action_category="information",
             risk_level="low",
             permission_required=False,
+            permission_decision="ALLOW",
             permission_state="not_required",
             approval_valid=False,
             external_side_effect=False,
@@ -294,6 +320,7 @@ def test_external_action_can_be_permission_checked():
     r = service.execute(make(
         "send_email",
         permission_required=True,
+        permission_decision="ALLOW",
         permission_state="granted",
         approval_valid=True,
         permission_scope=s,

@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 RiskLevel = Literal["low", "medium", "high", "critical"]
+PermissionDecision = Literal["ALLOW", "REQUIRE_APPROVAL", "DENY"]
 PermissionState = Literal[
     "not_required", "required", "granted", "denied", "expired", "invalid", "pending"
 ]
@@ -85,6 +86,7 @@ class ActionRequest(BaseModel):
     action_category: ActionCategory
     risk_level: RiskLevel
     permission_required: bool
+    permission_decision: PermissionDecision | None = None
     permission_state: PermissionState
     approval_valid: bool
     external_side_effect: bool
