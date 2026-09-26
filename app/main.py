@@ -1,4 +1,3 @@
-
 """Today AI Module 1 — Input Layer HTTP app."""
 
 import logging
@@ -17,6 +16,8 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api.routes.input import router as input_router
 from app.api.routes.assistant import router as assistant_router
+from app.integrations.google_oauth.router import router as google_oauth_router
+from app.integrations.n8n.router import router as n8n_router
 from app.core.security import (
     AccessLogMiddleware,
     AppError,
@@ -34,6 +35,8 @@ app = FastAPI(
 
 app.include_router(input_router)
 app.include_router(assistant_router)
+app.include_router(google_oauth_router)
+app.include_router(n8n_router)
 
 # M15: serve the local JARVIS presentation layer. API routes remain authoritative.
 _FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
