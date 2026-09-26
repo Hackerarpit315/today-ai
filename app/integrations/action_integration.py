@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from typing import Any
 
 from app.integrations.n8n.n8n_client import send_action_to_n8n
@@ -22,14 +24,23 @@ class ActionIntegrationService:
             "end": parameters.get("end"),
         }
 
-        if not isinstance(event["summary"], str) or not event["summary"].strip():
-            raise ValueError("Calendar event summary is required")
+        if (
+            not isinstance(event["summary"], str)
+            or not event["summary"].strip()
+        ):
+            raise ValueError(
+                "Calendar event summary is required"
+            )
 
         if not isinstance(event["start"], dict):
-            raise ValueError("Calendar event start is required")
+            raise ValueError(
+                "Calendar event start is required"
+            )
 
         if not isinstance(event["end"], dict):
-            raise ValueError("Calendar event end is required")
+            raise ValueError(
+                "Calendar event end is required"
+            )
 
         action = {
             "type": "calendar.create_event",
